@@ -32,12 +32,12 @@ else
   GROUP="$(id -gn)"
   TOUCH="/bin/touch"
 fi
-BREW_REPO="https://mirrors.ustc.edu.cn/brew.git"
+BREW_REPO="https://github.com/Homebrew/brew"
 
+# TODO: bump version when new macOS is released or announced
+MACOS_NEWEST_UNSUPPORTED="12.0"
 # TODO: bump version when new macOS is released
-MACOS_LATEST_SUPPORTED="10.15"
-# TODO: bump version when new macOS is released
-MACOS_OLDEST_SUPPORTED="10.13"
+MACOS_OLDEST_SUPPORTED="10.14"
 
 # For Homebrew on Linux
 REQUIRED_RUBY_VERSION=2.6  # https://github.com/Homebrew/brew/pull/6556
@@ -117,10 +117,10 @@ execute() {
 
 execute_sudo() {
   local -a args=("$@")
-  if [[ -n "${SUDO_ASKPASS-}" ]]; then
-    args=("-A" "${args[@]}")
-  fi
   if have_sudo_access; then
+    if [[ -n "${SUDO_ASKPASS-}" ]]; then
+      args=("-A" "${args[@]}")
+    fi
     ohai "/usr/bin/sudo" "${args[@]}"
     execute "/usr/bin/sudo" "${args[@]}"
   else
@@ -221,11 +221,14 @@ test_ruby () {
 
 no_usable_ruby() {
   local ruby_exec
-  which -a ruby | while read -r ruby_exec; do
+  IFS=$'\n' # Do word splitting on new lines only
+  for ruby_exec in $(which -a ruby); do
     if test_ruby "$ruby_exec"; then
+      IFS=$' \t\n' # Restore IFS to its default value
       return 1
     fi
   done
+  IFS=$' \t\n' # Restore IFS to its default value
   return 0
 }
 
@@ -238,12 +241,12 @@ outdated_glibc() {
 if [[ -n "${HOMEBREW_ON_LINUX-}" ]] && no_usable_ruby && outdated_glibc
 then
     abort "$(cat <<-EOFABORT
-    Homebrew requires Ruby $REQUIRED_RUBY_VERSION which was not found on your system.
-    Homebrew portable Ruby requires Glibc version $REQUIRED_GLIBC_VERSION or newer,
-    and your Glibc version is too old.
-    See ${tty_underline}https://docs.brew.sh/Homebrew-on-Linux#requirements${tty_reset}
-    Install Ruby $REQUIRED_RUBY_VERSION and add its location to your PATH.
-    EOFABORT
+	Homebrew requires Ruby $REQUIRED_RUBY_VERSION which was not found on your system.
+	Homebrew portable Ruby requires Glibc version $REQUIRED_GLIBC_VERSION or newer,
+	and your Glibc version is too old.
+	See ${tty_underline}https://docs.brew.sh/Homebrew-on-Linux#requirements${tty_reset}
+	Install Ruby $REQUIRED_RUBY_VERSION and add its location to your PATH.
+	EOFABORT
     )"
 fi
 
@@ -306,12 +309,29 @@ if [[ "$UID" == "0" ]]; then
   abort "Don't run this as root!"
 elif [[ -d "$HOMEBREW_PREFIX" && ! -x "$HOMEBREW_PREFIX" ]]; then
   abort "$(cat <<EOABORT
-The Homebrew prefix, ${HOMEBREW_PREFIX}, exists but is not searchable. If this is
-not intentional, please restore the default permissions and try running the
-installer again:
+The Homebrew prefix, ${HOMEBREW_PREFIX}, exists but is not searchable.
+If this is not intentional, please restore the default permissions and
+try running the installer again:
     sudo chmod 775 ${HOMEBREW_PREFIX}
 EOABORT
 )"
+fi
+
+UNAME_MACHINE="$(uname -m)"
+
+if [[ -z "${HOMEBREW_ON_LINUX-}" ]] && [[ "$UNAME_MACHINE" == "arm64" ]]; then
+  abort "$(cat <<EOABORT
+Homebrew is not (yet) supported on ARM processors!
+Rerun the Homebrew installer under Rosetta 2.
+If you really know what you are doing and are prepared for a very broken
+experience you can use another installation option for installing on ARM:
+  ${tty_underline}https://docs.brew.sh/Installation${tty_reset}
+EOABORT
+)"
+fi
+
+if [[ "$UNAME_MACHINE" != "x86_64" ]]; then
+  abort "Homebrew is only supported on Intel processors!"
 fi
 
 if [[ -z "${HOMEBREW_ON_LINUX-}" ]]; then
@@ -323,11 +343,11 @@ EOABORT
 )"
   elif version_lt "$macos_version" "10.10"; then
     abort "Your OS X version is too old"
-  elif version_gt "$macos_version" "$MACOS_LATEST_SUPPORTED" || \
+  elif version_ge "$macos_version" "$MACOS_NEWEST_UNSUPPORTED" || \
     version_lt "$macos_version" "$MACOS_OLDEST_SUPPORTED"; then
     who="We"
     what=""
-    if version_gt "$macos_version" "$MACOS_LATEST_SUPPORTED"; then
+    if version_ge "$macos_version" "$MACOS_NEWEST_UNSUPPORTED"; then
       what="pre-release version"
     else
       who+=" (and Apple)"
